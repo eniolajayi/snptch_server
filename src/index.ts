@@ -5,7 +5,7 @@ import { HonoDiskStorage } from '@hono-storage/node-disk';
 import type { NewReportBody } from './types/index.js';
 import { db } from './db/index.js';
 import { reports } from './db/schema.js';
-import { eq } from 'drizzle-orm';
+import { eq, isNull } from 'drizzle-orm';
 
 const app = new Hono();
 
@@ -23,17 +23,28 @@ app.get('/api/', (c) => {
   })
 })
 
+// GET all reports route
 app.get("api/reports/", async (c) => {
-  const result = await db.select().from(reports);
 
-  return c.json({
-    ok: true,
-    message: "",
-    data: result
-  })
+  try {
+    const result = await db.select()
+      .from(reports)
+      .where(isNull(reports.deleted_at)); // Only fetch reports where deleted_at IS NULL
+
+    return c.json({
+      ok: true,
+      message: "Reports retrieved successfully",
+      data: result
+    });
+
+  } catch (error) {
+    console.error("Error fetching reports:", error);
+    return c.json({ ok: false, message: "Failed to fetch reports" }, 500);
+  }
+
 });
 
-// POST - Add new report
+// POST add new report
 app.post("api/reports/", storage.single("image"), async (c) => {
 
   try {
@@ -78,6 +89,7 @@ app.post("api/reports/", storage.single("image"), async (c) => {
   }
 });
 
+// DELETE single report
 app.delete("/api/reports/:id", async (c) => {
   const idParam = c.req.param("id");
   const id = parseInt(idParam);
@@ -89,7 +101,7 @@ app.delete("/api/reports/:id", async (c) => {
 
   try {
     // (Soft Delete)
-    // Will still return success even if item is deleted, might need to check if report is already deleted
+    // Will still return success even if item is deleted, but we filter out soft-deleted items
     const result = await db.update(reports)
       .set({ deleted_at: new Date() })
       .where(eq(reports.id, id))
