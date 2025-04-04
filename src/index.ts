@@ -6,6 +6,7 @@ import type { NewReportBody } from './types/index.js';
 import { db } from './db/index.js';
 import { reports } from './db/schema.js';
 import { eq, isNull } from 'drizzle-orm';
+import { serveStatic } from '@hono/node-server/serve-static';
 
 const app = new Hono();
 
@@ -16,6 +17,13 @@ const storage = new HonoDiskStorage({
 
 // routes
 app.use('/api/*', cors())
+
+// serve static files (uploaded images)
+app.use('/uploads/*', serveStatic({
+  root: './src/',
+}));
+
+
 app.get('/api/', (c) => {
   return c.json({
     ok: true,
