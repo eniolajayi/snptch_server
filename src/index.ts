@@ -79,22 +79,40 @@ app.post("api/reports/", storage.single("image"), async (c) => {
 });
 
 app.delete("/api/reports/:id", async (c) => {
-  const id = c.req.param("id");
+  const idParam = c.req.param("id");
+  const id = parseInt(idParam);
 
-  const result = await db.delete(reports).where(eq(reports.id, parseInt(id))).returning();
-
-  if (result.length === 0) {
-    return c.json({
-      ok: false,
-      message: "Report not found"
-    }, 404);
+  // Validate ID
+  if (isNaN(id)) {
+    return c.json({ ok: false, message: "Invalid report ID format" }, 400);
   }
 
-  return c.json({
-    ok: true,
-    message: "Report deleted successfully",
-    data: result
-  });
+  try {
+    // (Soft Delete)
+    // Will still return success even if item is deleted, might need to check if report is already deleted
+    const result = await db.update(reports)
+      .set({ deleted_at: new Date() })
+      .where(eq(reports.id, id))
+      .returning({ id: reports.id });
+
+
+    if (result.length === 0) {
+      return c.json({
+        ok: false,
+        message: "Report not found"
+      }, 404);
+    }
+
+    return c.json({
+      ok: true,
+      message: "Report deleted successfully",
+      data: { id: result[0].id }
+    });
+
+  } catch (error) {
+    console.error("Error soft deleting report:", error);
+    return c.json({ ok: false, message: "Failed to delete report" }, 500);
+  }
 });
 
 
