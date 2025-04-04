@@ -8,11 +8,21 @@ import { reports } from './db/schema.js';
 import { eq, isNull } from 'drizzle-orm';
 import { serveStatic } from '@hono/node-server/serve-static';
 
-const app = new Hono();
+type Env = {
+  Variables: {
+    filename: string
+  }
+}
+
+const app = new Hono<Env>();
 
 const storage = new HonoDiskStorage({
   dest: "./src/uploads",
-  filename: (c, file) => `${file.originalname}-${new Date().getTime()}.${file.extension}`
+  filename: (c, file) => {
+    const newFilename = `${file.originalname}-${new Date().getTime()}.${file.extension}`;
+    c.set("filename", newFilename);
+    return newFilename;
+  }
 })
 
 // routes
@@ -56,7 +66,6 @@ app.get("api/reports/", async (c) => {
 app.post("api/reports/", storage.single("image"), async (c) => {
 
   try {
-
     const body = await c.req.parseBody() as NewReportBody;
 
     if (!body.image) {
@@ -67,6 +76,17 @@ app.post("api/reports/", storage.single("image"), async (c) => {
       return c.json({ error: "Missing required fields" }, 400);
     }
 
+    const file = c.var.files.image;
+
+    if (!file) {
+      // This check assumes the middleware didn't throw an error but failed silently
+      // or wasn't triggered correctly if 'image' field was missing in the form-data
+      return c.json({ ok: false, message: "Missing image file" }, 400);
+    }
+
+    const storedFilename = c.var.filename;
+    const imageUrl = `/uploads/${storedFilename}`;
+
     // Convert lat/lon to numbers
     const longitude = parseFloat(body.longitude);
     const latitiude = parseFloat(body.latitude);
@@ -74,9 +94,6 @@ app.post("api/reports/", storage.single("image"), async (c) => {
     if (isNaN(latitiude) || isNaN(longitude)) {
       return c.json({ ok: false, message: "Invalid latitude or longitude format" })
     }
-
-    // --- Construct Image URL and Geometry ---
-    const imageUrl = `/uploads/${body.image.name}`;
 
     const result = await db.insert(reports).values({
       description: body.description,
