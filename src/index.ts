@@ -33,26 +33,49 @@ app.get("api/reports/", async (c) => {
   })
 });
 
+// POST - Add new report
 app.post("api/reports/", storage.single("image"), async (c) => {
 
-  const body = await c.req.parseBody() as NewReportBody;
+  try {
 
-  if (!body.description || !body.latitude || !body.longitude || !body.address || !body.image) {
-    return c.json({ error: "Missing required fields" }, 400);
+    const body = await c.req.parseBody() as NewReportBody;
+
+    if (!body.image) {
+      return c.json({ ok: false, message: "Missing image file" }, 400);
+    }
+
+    if (!body.description || !body.latitude || !body.longitude || !body.address || !body.image) {
+      return c.json({ error: "Missing required fields" }, 400);
+    }
+
+    // Convert lat/lon to numbers
+    const longitude = parseFloat(body.longitude);
+    const latitiude = parseFloat(body.latitude);
+
+    if (isNaN(latitiude) || isNaN(longitude)) {
+      return c.json({ ok: false, message: "Invalid latitude or longitude format" })
+    }
+
+    // --- Construct Image URL and Geometry ---
+    const imageUrl = `/uploads/${body.image.name}`;
+
+    const result = await db.insert(reports).values({
+      description: body.description,
+      address: body.address,
+      location: { x: latitiude, y: longitude },
+      imageUrl: imageUrl,
+    }).returning();
+
+    return c.json({
+      ok: true,
+      message: "Report submitted successfully",
+      data: result[0],
+    }, 200);
+
+  } catch (error) {
+    console.error("Error creating report:", error);
+    return c.json({ ok: false, message: "Failed to submit report" }, 500);
   }
-
-  const result = await db.insert(reports).values({
-    description: body.description,
-    address: body.address,
-    location: { x: body.latitude, y: body.longitude },
-    imageUrl: `/uploads/${body.image.name}`
-  }).returning();
-
-  return c.json({
-    ok: true,
-    message: "Report submitted successfully",
-    data: result
-  }, 200);
 });
 
 app.delete("/api/reports/:id", async (c) => {
