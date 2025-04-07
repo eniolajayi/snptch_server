@@ -5,8 +5,10 @@ import { HonoDiskStorage } from '@hono-storage/node-disk';
 import type { NewReportBody } from './types/index.js';
 import { db } from './db/index.js';
 import { reports } from './db/schema.js';
-import { eq, isNull } from 'drizzle-orm';
+import { eq, isNull, sql } from 'drizzle-orm';
 import { serveStatic } from '@hono/node-server/serve-static';
+import { zValidator } from '@hono/zod-validator';
+import { nearbyQuerySchema } from './validators/nearbyquery.validator.js';
 
 type Env = {
   Variables: {
@@ -152,6 +154,45 @@ app.delete("/api/reports/:id", async (c) => {
   }
 });
 
+// nearby reports route
+app.get('/api/reports/nearby',
+  zValidator('query', nearbyQuerySchema),
+  async (c) => {
+    try {
+      const { lat, lon, radius } = c.req.valid('query');
+      // Use ST_SetSRID and ST_MakePoint to create a geometry point from lat/lon
+      // IMPORTANT: ST_MakePoint takes longitude first, then latitude!
+      const centerPoint = sql`ST_SetSRID(ST_MakePoint(${lon}, ${lat}), 4326)`;
+      // ST_DWithin checks for geometries within a certain distance.
+      // For accurate meter-based distance with SRID 4326 (lat/lon), 
+      // we need to cast both the table's location and our center point to the 'geography' type.
+      const nearbyCondition = sql`ST_DWithin(reports.location::geography, ${centerPoint}::geography, ${radius})`;
+
+      const nearbyReports = await db.select({
+        id: reports.id,
+        imageUrl: reports.imageUrl,
+        location: reports.location,
+        description: reports.description,
+        address: reports.address,
+        createdAt: reports.created_at,
+        updatedAt: reports.updated_at,
+      })
+        .from(reports)
+        .where(sql`${nearbyCondition} AND ${isNull(reports.deleted_at)}`)
+        .orderBy(sql`ST_Distance(reports.location::geography, ${centerPoint}::geography) ASC`);
+
+      return c.json({
+        ok: true,
+        message: `Reports found within ${radius} meters`,
+        data: nearbyReports
+      });
+    }
+    catch (error) {
+      console.error("Error fetching nearby reports:", error);
+      return c.json({ ok: false, message: "Failed to fetch nearby reports" }, 500);
+    }
+  }
+);
 
 // start server
 const port = 3000;
